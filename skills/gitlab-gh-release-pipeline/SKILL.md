@@ -150,6 +150,42 @@ Pipeline scripts read Jira at **runtime** from the QE task description table. Co
 
 Updating Jira alone does not help if validate still runs old `parse-jira-params.sh` on `main`.
 
+## Rule: catalog `releaseNotes.type` must match bundle
+
+**Never publish catalog with a different advisory type than bundle** (e.g. bundle `RHSA` + catalog `RHBA`). CVE z-streams use **RHSA on both**; catalog CRs do not repeat the CVE list — only `type: RHSA`.
+
+### Pipeline (GitLab child pipeline)
+
+- Order is fixed: **bundle job → catalog job** (`01-discover-tasks.sh` `needs`).
+- `release/04-release-catalog.sh` **inherits** `releaseNotes.type` from the bundle Release CR (does not pass a stale `RELEASE_TYPE` default to `create-konflux-release.sh`).
+- Set `RELEASE_TYPE` in Run pipeline for the **bundle** job (e.g. `RHSA` for CVE z-streams). Catalog aligns automatically.
+
+### Manual / agent runs (no GitLab pipeline)
+
+When invoking `lib/create-konflux-release.sh` yourself:
+
+1. **Run bundle first** and wait for `Released=True` (or at least until the bundle CR exists with the intended `spec.data.releaseNotes.type`).
+2. **Catalog — do not pass `--release-type`** unless it matches bundle exactly. Omit the flag so `align_catalog_release_type_with_bundle` copies from the bundle CR:
+
+```bash
+# Bundle (CVE z-stream example)
+./lib/create-konflux-release.sh rc4 --prod --versions 1-8 --z 1 \
+  --release bundle --release-type RHSA --epic ACM-36437
+
+# Catalog — NO --release-type (inherits RHSA from bundle CR)
+./lib/create-konflux-release.sh rc4 --prod --versions 1-8 --z 1 --release catalog
+```
+
+3. **Never** run catalog prod/stage before bundle for the same rc.
+4. If you pass `--release-type` on catalog and it **≠** bundle spec type, the script **exits with error**.
+
+### Anti-pattern (GH 1.8.1 rc4)
+
+| What happened | Result |
+|---------------|--------|
+| Agent ran catalog prod without `--release-type` while script default was `RHBA` | Catalog CRs `RHBA`, bundle `RHSA` — process drift (no customer impact, wrong archive in acm-release-management) |
+| Fix | `create-konflux-release.sh` + `04-release-catalog.sh` inherit/validate against bundle CR |
+
 ## Related
 
 - Agent defaults (DCO, PR comments): `skills/agent-config/SKILL.md`

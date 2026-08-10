@@ -56,6 +56,29 @@ Stage `verify-conforma` re-reads the catalog build attestation. If EC failed (e.
 **Catalog before bundle** → OLM `BundleUnpackFailed` / `manifest unknown`.  
 **Stage release before EC clean** → `verify-conforma` / `test.no_failed_tests` / `fbc-target-index-pruning-check`.
 
+## releaseNotes.type — bundle and catalog must match
+
+For each rc (stage or prod), **catalog `spec.data.releaseNotes.type` must equal bundle** (`RHSA`/`RHBA`/`RHEA`). CVE z-streams: bundle carries CVE list + `RHSA`; catalog uses **`type: RHSA` only** (no CVE block).
+
+**Script behavior** (`lib/create-konflux-release.sh`):
+
+- Catalog mode **requires** the bundle Release CR for the same rc to exist.
+- If `--release-type` is **omitted** on catalog → type is **copied from bundle CR**.
+- If `--release-type` is **set** and ≠ bundle → **error, exit 1**.
+
+**Agent / manual commands:**
+
+```bash
+# 1. Bundle first (example CVE prod rc4)
+./lib/create-konflux-release.sh rc4 --prod --versions 1-8 --z 1 \
+  --release bundle --release-type RHSA --epic ACM-36437
+
+# 2. Catalog — omit --release-type (never rely on RHBA default)
+./lib/create-konflux-release.sh rc4 --prod --versions 1-8 --z 1 --release catalog
+```
+
+**GitLab pipeline:** `release/04-release-catalog.sh` inherits from bundle; do not hand-run catalog with a mismatched type.
+
 ## Pre-stage checklist (per OCP variant)
 
 For each OCP compact version (e.g. 418, 419, …):
@@ -168,14 +191,14 @@ DATE=$(date +%Y%m%d)   # e.g. 20260611
 # 1. Bundle stage release
 create-konflux-release.sh "$DATE" --stage --versions 5-0 --release bundle --release-type RHBA --epic <EPIC>
 
-# 2. Catalog stage releases (script now auto-defaults to date when no tag given)
-create-konflux-release.sh --stage --versions 5-0 --release catalog --release-type RHBA
+# 2. Catalog stage releases — omit --release-type (inherits from bundle CR after step 1)
+create-konflux-release.sh --stage --versions 5-0 --release catalog
 # → names: stage-publish-catalog-4XX-glo-50-release-20260611
 ```
 
 Or pass `$DATE` explicitly so bundle and catalog share the exact same suffix:
 ```bash
-create-konflux-release.sh "$DATE" --stage --versions 5-0 --release catalog --release-type RHBA
+create-konflux-release.sh "$DATE" --stage --versions 5-0 --release catalog
 ```
 
 **Before running:** confirm EC neutral on latest `release-5.0` push snapshots (commit `f072a7d` or newer).
